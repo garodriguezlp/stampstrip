@@ -223,9 +223,6 @@ final class NewNameBuilder {
 
     static String build(Path file, String originalName, StampstripConfig cfg, Summary summary) {
         NameParts parts = NameParts.from(originalName);
-        String cleanBase = TimestampPrefixStripper.strip(parts.base());
-        String base = cleanBase.isBlank() ? parts.base() : cleanBase;
-
         LocalDateTime created = FileChecks.creationTime(file);
         if (created == null) {
             summary.addFailed();
@@ -234,7 +231,10 @@ final class NewNameBuilder {
         }
 
         String prefix = cfg.formatter().format(created).toLowerCase(Locale.ROOT);
-        return (prefix + "-" + base + parts.extension()).toLowerCase(Locale.ROOT);
+        String cleanBase = TimestampPrefixStripper.strip(parts.base(), prefix);
+        String base = cleanBase.isBlank() ? parts.base() : cleanBase;
+        String normalizedBase = FileNameNormalizer.normalize(base);
+        return (prefix + "-" + normalizedBase + parts.extension()).toLowerCase(Locale.ROOT);
     }
 }
 
@@ -267,7 +267,25 @@ final class TimestampPrefixStripper {
     private TimestampPrefixStripper() {
     }
 
-    static String strip(String baseName) {
+    static String strip(String baseName, String currentPrefix) {
+        String withoutCurrentPrefix = stripCurrentPrefix(baseName, currentPrefix);
+        return stripOneTimestamp(withoutCurrentPrefix);
+    }
+
+    private static String stripCurrentPrefix(String baseName, String currentPrefix) {
+        if (currentPrefix == null || currentPrefix.isBlank()) {
+            return baseName;
+        }
+
+        String marker = currentPrefix + "-";
+        String candidate = baseName;
+        while (candidate.toLowerCase(Locale.ROOT).startsWith(marker)) {
+            candidate = candidate.substring(marker.length());
+        }
+        return candidate;
+    }
+
+    private static String stripOneTimestamp(String baseName) {
         Matcher matcher = PREFIX_PATTERN.matcher(baseName);
         if (!matcher.matches() || !validDateTime(matcher)) {
             return baseName;
@@ -315,6 +333,17 @@ final class TimestampPrefixStripper {
         } catch (DateTimeException | IllegalArgumentException ex) {
             return false;
         }
+    }
+}
+
+final class FileNameNormalizer {
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+
+    private FileNameNormalizer() {
+    }
+
+    static String normalize(String fileBaseName) {
+        return WHITESPACE_PATTERN.matcher(fileBaseName).replaceAll("-");
     }
 }
 
